@@ -7,12 +7,18 @@ import { buildFacets, searchImages, type SortMode } from "@/lib/search/search";
 
 export const runtime = "nodejs";
 
+function stripPrivateSearchFields<T extends { embedding?: unknown }>(image: T): Omit<T, "embedding"> {
+  const { embedding: _embedding, ...publicImage } = image;
+  return publicImage;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const query = url.searchParams.get("query") ?? "";
   const category = url.searchParams.get("category") ?? "";
   const tag = url.searchParams.get("tag") ?? "";
-  const sort = (url.searchParams.get("sort") ?? "newest") as SortMode;
+  const requestedSort = url.searchParams.get("sort") as SortMode | null;
+  const sort = requestedSort ?? (query.trim() ? "relevance" : "newest");
   const limit = Number(url.searchParams.get("limit") ?? "120");
 
   const [db, config] = await Promise.all([getDb(), loadConfig()]);
@@ -29,7 +35,9 @@ export async function GET(request: Request) {
     tag: tag || undefined,
     sort,
     queryEmbedding,
-  }).slice(0, Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 120);
+  })
+    .slice(0, Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 120)
+    .map(stripPrivateSearchFields);
 
   return NextResponse.json({
     images,

@@ -19,6 +19,26 @@ export type SearchFacets = {
   tags: Array<{ slug: string; count: number }>;
 };
 
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "at",
+  "for",
+  "from",
+  "her",
+  "his",
+  "in",
+  "is",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) {
     return 0;
@@ -49,7 +69,12 @@ function keywordScore(image: ImageRecord, query: string): number {
     .toLowerCase()
     .split(/\s+/)
     .map((term) => term.trim())
-    .filter(Boolean);
+    .filter((term) => term.length > 1 && !STOP_WORDS.has(term));
+
+  if (terms.length === 0) {
+    return 0;
+  }
+
   const haystack = [
     image.original_filename,
     image.current_path,
@@ -70,7 +95,7 @@ function keywordScore(image: ImageRecord, query: string): number {
     .toLowerCase();
 
   const matches = terms.filter((term) => haystack.includes(term)).length;
-  return matches / Math.max(terms.length, 1);
+  return matches / terms.length;
 }
 
 export function buildFacets(images: ImageRecord[]): SearchFacets {
@@ -116,9 +141,10 @@ export function searchImages(images: ImageRecord[], params: SearchParams): Ranke
           ? cosineSimilarity(params.queryEmbedding, image.embedding)
           : 0;
       const textScore = keywordScore(image, query);
+      const relevance = textScore > 0 ? textScore + semanticScore * 0.25 : semanticScore * 0.75;
       return {
         ...image,
-        relevance: query ? semanticScore * 0.8 + textScore * 0.2 : 0,
+        relevance: query ? relevance : 0,
       };
     })
     .filter((image) => {

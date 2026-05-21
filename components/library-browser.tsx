@@ -211,7 +211,7 @@ export function LibraryBrowser() {
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState("");
   const [tag, setTag] = React.useState("");
-  const [sort, setSort] = React.useState("newest");
+  const [sort, setSort] = React.useState("relevance");
   const [selected, setSelected] = React.useState<ImageItem | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [uploading, setUploading] = React.useState(false);
@@ -290,7 +290,7 @@ export function LibraryBrowser() {
     setQuery("");
     setCategory("");
     setTag("");
-    setSort("newest");
+    setSort("relevance");
   }
 
   return (

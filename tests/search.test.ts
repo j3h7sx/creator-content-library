@@ -46,13 +46,35 @@ describe("search", () => {
   test("keyword search matches caption and tags", () => {
     const results = searchImages(
       [
-        image({ id: "1", caption: "Salad with avocado and egg", tags: ["food", "avocado"] }),
-        image({ id: "2", caption: "Person holding coffee in bed", tags: ["coffee"] }),
+        image({ id: "1", caption: "Salad with avocado and egg", tags: ["food", "avocado"], created_at: "2026-01-01T00:00:00.000Z" }),
+        image({ id: "2", caption: "Person holding coffee in bed", tags: ["coffee"], created_at: "2026-02-01T00:00:00.000Z" }),
       ],
       { query: "avocado egg", sort: "relevance" },
     );
 
     expect(results[0]?.id).toBe("1");
+  });
+
+  test("relevance ranking prioritizes keyword matches over newer unrelated images", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "older-match",
+          caption: "Healthy salad bowl with avocado and boiled eggs",
+          tags: ["salad", "avocado", "eggs"],
+          created_at: "2026-01-01T00:00:00.000Z",
+        }),
+        image({
+          id: "newer-unrelated",
+          caption: "Dim shower scene with water droplets and warm candlelight",
+          tags: ["shower", "self-care"],
+          created_at: "2026-05-01T00:00:00.000Z",
+        }),
+      ],
+      { query: "salad with avocado and egg", sort: "relevance" },
+    );
+
+    expect(results[0]?.id).toBe("older-match");
   });
 
   test("facets hide empty filters by only counting present records", () => {
