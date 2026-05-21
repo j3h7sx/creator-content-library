@@ -1,0 +1,35 @@
+.DS_Store
+.env
+.env*.local
+.next/
+node_modules/
+bun.lockb
+tsconfig.tsbuildinfo
+
+# Local user libraries and generated assets
+data/**
+library/**
+00_inbox_new_pinterest_downloads/
+98_duplicates_exact_matches/
+98_exclude_do_not_catalog/
+99_review_needs_human_choice/
+_catalog/catalog.sqlite3
+_catalog/api_previews/
+_catalog/contact_sheets/
+_catalog/library_browser.html
+_catalog/catalog_manifest.*
+_catalog/*.txt
+
+# Keep empty folder structure available through .gitkeep files.
+!data/
+!library/.gitkeep
+!library/
+!library/00_inbox/
+!library/00_inbox/.gitkeep
+!library/originals/
+!library/originals/.gitkeep
+!library/previews/
+!library/previews/.gitkeep
+!library/duplicates/
+!library/duplicates/.gitkeep
+!data/.gitkeep

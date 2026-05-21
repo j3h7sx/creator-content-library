@@ -1,0 +1,16 @@
+{
+  "libraryRoot": "library",
+  "inboxDir": "library/00_inbox",
+  "originalsDir": "library/originals",
+  "previewsDir": "library/previews",
+  "duplicatesDir": "library/duplicates",
+  "ai": {
+    "enabled": true,
+    "catalogModel": "gpt-4.1-mini",
+    "embeddingModel": "text-embedding-3-small"
+  },
+  "pinterestDownloader": {
+    "command": "python3",
+    "args": ["/absolute/path/to/downloader.py", "{url}", "--out", "{out}"]
+  }
+}
