@@ -5,6 +5,8 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowDownToLine,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Folder,
   ImageOff,
@@ -28,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatBytes, formatDate } from "@/lib/utils";
 
@@ -138,10 +141,10 @@ function ImageCard({
   const [broken, setBroken] = React.useState(false);
 
   return (
-    <article className="group overflow-hidden rounded-lg border bg-card shadow-sm transition hover:shadow-md">
+    <article className="group cursor-pointer overflow-hidden rounded-lg border bg-card shadow-sm transition hover:shadow-md">
       <button
         type="button"
-        className="block w-full bg-muted text-left"
+        className="block w-full cursor-pointer bg-muted text-left"
         onClick={() => onOpen(image)}
       >
         {broken ? (
@@ -190,6 +193,36 @@ function ImageCard({
   );
 }
 
+function ImageCardSkeleton() {
+  return (
+    <article className="overflow-hidden rounded-lg border bg-card">
+      <Skeleton className="aspect-[4/3] w-full rounded-none" />
+      <div className="flex flex-col gap-3 p-3">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-4 w-2/3" />
+          <Skeleton className="h-3 w-1/3" />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ImageGridSkeleton() {
+  return (
+    <div className="grid asset-grid gap-4" aria-label="Loading image results" aria-live="polite">
+      {Array.from({ length: 12 }, (_, index) => (
+        <ImageCardSkeleton key={index} />
+      ))}
+    </div>
+  );
+}
+
 function EmptyState({ hasFilters }: { hasFilters: boolean }) {
   return (
     <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
@@ -221,6 +254,7 @@ export function LibraryBrowser() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const hasFilters = Boolean(debouncedQuery || category || tag);
+  const resultsPending = loading || query !== debouncedQuery;
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -286,12 +320,50 @@ export function LibraryBrowser() {
     }
   }
 
-  function clearFilters() {
-    setQuery("");
-    setCategory("");
-    setTag("");
-    setSort("relevance");
-  }
+  const moveSelected = React.useCallback(
+    (direction: -1 | 1) => {
+      setSelected((current) => {
+        if (!current || data.images.length < 2) {
+          return current;
+        }
+
+        const currentIndex = data.images.findIndex((image) => image.id === current.id);
+        if (currentIndex === -1) {
+          return current;
+        }
+
+        const nextIndex = (currentIndex + direction + data.images.length) % data.images.length;
+        return data.images[nextIndex];
+      });
+    },
+    [data.images],
+  );
+
+  React.useEffect(() => {
+    if (!selected) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveSelected(-1);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveSelected(1);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [moveSelected, selected]);
+
+  const selectedIndex = selected ? data.images.findIndex((image) => image.id === selected.id) : -1;
+  const canNavigateSelected = selectedIndex >= 0 && data.images.length > 1;
 
   return (
     <TooltipProvider>
@@ -333,7 +405,7 @@ export function LibraryBrowser() {
                       <button
                         key={facet.slug}
                         type="button"
-                        className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition ${
+                        className={`flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-sm transition ${
                           category === facet.slug
                             ? "bg-accent text-accent-foreground"
                             : "hover:bg-muted"
@@ -354,7 +426,12 @@ export function LibraryBrowser() {
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {data.facets.tags.slice(0, 36).map((facet) => (
-                      <button key={facet.slug} type="button" onClick={() => setTag(tag === facet.slug ? "" : facet.slug)}>
+                      <button
+                        key={facet.slug}
+                        type="button"
+                        className="cursor-pointer"
+                        onClick={() => setTag(tag === facet.slug ? "" : facet.slug)}
+                      >
                         <Badge variant={tag === facet.slug ? "default" : "secondary"}>
                           {facet.slug} {facet.count}
                         </Badge>
@@ -396,21 +473,33 @@ export function LibraryBrowser() {
                   </div>
                 </div>
 
-                <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_180px]">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="salad with avocado and egg, blurry picture outside, person holding coffee in bed"
-                      className="pl-10"
+                      className="pl-10 pr-10"
                     />
+                    {query ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setQuery("")}
+                      >
+                        <X />
+                        <span className="sr-only">Clear search</span>
+                      </Button>
+                    ) : null}
                   </div>
                   <Select value={sort} onValueChange={setSort}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="Sort" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" align="end" className="min-w-[var(--radix-select-trigger-width)]">
                       <SelectGroup>
                         <SelectItem value="newest">Newest</SelectItem>
                         <SelectItem value="relevance">Relevance</SelectItem>
@@ -418,10 +507,6 @@ export function LibraryBrowser() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" onClick={clearFilters} disabled={!hasFilters && sort === "newest"}>
-                    <X />
-                    Clear
-                  </Button>
                 </div>
 
                 {(message || error) && (
@@ -439,14 +524,27 @@ export function LibraryBrowser() {
 
             <div className="flex-1 p-4 md:p-6">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
-                <p>
-                  {loading ? "Loading..." : `${data.images.length} visible image${data.images.length === 1 ? "" : "s"}`}
-                  {data.ai.semanticSearch ? " using semantic ranking" : ""}
+                <p className="inline-flex items-center gap-2">
+                  {resultsPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      <span>
+                        Updating results{data.ai.semanticSearch ? " with semantic ranking" : ""}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {data.images.length} visible image{data.images.length === 1 ? "" : "s"}
+                      {data.ai.semanticSearch ? " using semantic ranking" : ""}
+                    </>
+                  )}
                 </p>
                 <p>Latest catalog run: {formatDate(data.stats.latestProcessedAt)}</p>
               </div>
 
-              {data.images.length === 0 && !loading ? (
+              {resultsPending ? (
+                <ImageGridSkeleton />
+              ) : data.images.length === 0 ? (
                 <EmptyState hasFilters={hasFilters} />
               ) : (
                 <div className="grid asset-grid gap-4">
@@ -461,21 +559,50 @@ export function LibraryBrowser() {
 
         <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
           {selected ? (
-            <DialogContent>
+            <DialogContent className="w-[min(1120px,94vw)] max-w-[min(1120px,94vw)] gap-0 overflow-hidden p-0 sm:max-w-[min(1120px,94vw)]">
               <DialogHeader className="sr-only">
                 <DialogTitle>{selected.caption ?? selected.original_filename}</DialogTitle>
                 <DialogDescription>Image preview and metadata</DialogDescription>
               </DialogHeader>
               <div className="grid max-h-[92vh] grid-cols-1 overflow-hidden md:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="flex min-h-[320px] items-center justify-center bg-muted">
+                <div className="relative flex min-h-[320px] items-center justify-center bg-muted">
+                  {canNavigateSelected ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="absolute left-3 top-1/2 z-10 size-9 -translate-y-1/2 rounded-full bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                      onClick={() => moveSelected(-1)}
+                    >
+                      <ChevronLeft />
+                      <span className="sr-only">Previous image</span>
+                    </Button>
+                  ) : null}
                   <img
                     src={`/api/images/${selected.id}/file`}
                     alt={selected.caption ?? selected.original_filename}
                     className="max-h-[92vh] w-full object-contain"
                   />
+                  {canNavigateSelected ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="absolute right-3 top-1/2 z-10 size-9 -translate-y-1/2 rounded-full bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                      onClick={() => moveSelected(1)}
+                    >
+                      <ChevronRight />
+                      <span className="sr-only">Next image</span>
+                    </Button>
+                  ) : null}
                 </div>
                 <aside className="flex max-h-[92vh] flex-col overflow-y-auto border-t bg-background p-5 md:border-l md:border-t-0">
                   <div className="pr-8">
+                    {selectedIndex >= 0 ? (
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        {selectedIndex + 1} of {data.images.length}
+                      </p>
+                    ) : null}
                     <h2 className="text-lg font-semibold leading-6">
                       {selected.caption || selected.original_filename}
                     </h2>
