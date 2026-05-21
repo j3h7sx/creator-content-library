@@ -14,6 +14,17 @@ export type RankedImage = ImageRecord & {
   relevance: number;
 };
 
+type ScoredImage = RankedImage & {
+  primaryTextScore: number;
+  semanticScore: number;
+  textScore: number;
+};
+
+type TextScores = {
+  primary: number;
+  combined: number;
+};
+
 export type SearchFacets = {
   categories: Array<{ slug: string; count: number }>;
   tags: Array<{ slug: string; count: number }>;
@@ -39,6 +50,40 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
+const SEMANTIC_COHORT_RATIO = 0.12;
+const SEMANTIC_RELATIVE_FLOOR = 0.88;
+
+function normalizeToken(value: string): string {
+  const cleaned = value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+  if (cleaned.length > 4 && cleaned.endsWith("ies")) {
+    return `${cleaned.slice(0, -3)}y`;
+  }
+  if (cleaned.length > 3 && cleaned.endsWith("es")) {
+    return cleaned.slice(0, -2);
+  }
+  if (cleaned.length > 3 && cleaned.endsWith("s")) {
+    return cleaned.slice(0, -1);
+  }
+
+  return cleaned;
+}
+
+function tokenize(value: string): string[] {
+  return value
+    .split(/[^a-zA-Z0-9]+/)
+    .map(normalizeToken)
+    .filter((token) => token.length > 1);
+}
+
+function getQueryTerms(query: string): string[] {
+  return tokenize(query).filter((term) => !STOP_WORDS.has(term));
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) {
     return 0;
@@ -60,42 +105,46 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-function keywordScore(image: ImageRecord, query: string): number {
-  if (!query.trim()) {
-    return 0;
-  }
-
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter((term) => term.length > 1 && !STOP_WORDS.has(term));
-
+function textScores(image: ImageRecord, terms: string[]): TextScores {
   if (terms.length === 0) {
-    return 0;
+    return { primary: 0, combined: 0 };
   }
 
-  const haystack = [
-    image.original_filename,
-    image.current_path,
-    image.caption,
-    image.description,
-    image.category,
-    image.visual_style,
-    image.vibe,
-    image.setting,
-    image.action,
-    image.searchable_text,
-    ...image.tags,
-    ...image.people,
-    ...image.objects,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  const primaryTokens = new Set(
+    [
+      image.current_path,
+      image.caption,
+      image.category,
+      image.setting,
+      image.action,
+      ...image.tags,
+      ...image.people,
+      ...image.objects,
+    ]
+      .filter(Boolean)
+      .flatMap((value) => tokenize(String(value))),
+  );
+  const fallbackTokens = new Set(
+    [
+      image.original_filename,
+      image.description,
+      image.visual_style,
+      image.vibe,
+      image.searchable_text,
+    ]
+      .filter(Boolean)
+      .flatMap((value) => tokenize(String(value))),
+  );
 
-  const matches = terms.filter((term) => haystack.includes(term)).length;
-  return matches / terms.length;
+  const primaryMatches = terms.filter((term) => primaryTokens.has(term)).length;
+  const fallbackOnlyMatches = terms.filter(
+    (term) => !primaryTokens.has(term) && fallbackTokens.has(term),
+  ).length;
+
+  return {
+    primary: primaryMatches / terms.length,
+    combined: (primaryMatches + fallbackOnlyMatches * 0.35) / terms.length,
+  };
 }
 
 export function buildFacets(images: ImageRecord[]): SearchFacets {
@@ -122,8 +171,33 @@ export function buildFacets(images: ImageRecord[]): SearchFacets {
   };
 }
 
+function getSemanticCutoff(images: ScoredImage[], hasQueryEmbedding: boolean): number {
+  if (!hasQueryEmbedding) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const scores = images
+    .map((image) => image.semanticScore)
+    .filter((score) => score > 0)
+    .sort((a, b) => b - a);
+
+  if (scores.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const topScore = scores[0];
+  const cohortIndex = Math.min(
+    scores.length - 1,
+    Math.max(0, Math.ceil(scores.length * SEMANTIC_COHORT_RATIO) - 1),
+  );
+
+  return Math.max(scores[cohortIndex], topScore * SEMANTIC_RELATIVE_FLOOR);
+}
+
 export function searchImages(images: ImageRecord[], params: SearchParams): RankedImage[] {
   const query = params.query?.trim() ?? "";
+  const terms = getQueryTerms(query);
+  const hasQueryEmbedding = Boolean(params.queryEmbedding?.length);
   const filtered = images.filter((image) => {
     if (params.category && image.category !== params.category) {
       return false;
@@ -134,34 +208,59 @@ export function searchImages(images: ImageRecord[], params: SearchParams): Ranke
     return true;
   });
 
-  const ranked = filtered
-    .map((image) => {
-      const semanticScore =
-        params.queryEmbedding && image.embedding
-          ? cosineSimilarity(params.queryEmbedding, image.embedding)
-          : 0;
-      const textScore = keywordScore(image, query);
-      const relevance = textScore > 0 ? textScore + semanticScore * 0.25 : semanticScore * 0.75;
-      return {
-        ...image,
-        relevance: query ? relevance : 0,
-      };
-    })
-    .filter((image) => {
-      if (!query) {
-        return true;
-      }
-      return image.relevance > 0 || keywordScore(image, query) > 0;
-    });
+  const scored: ScoredImage[] = filtered.map((image) => {
+    const semanticScore =
+      hasQueryEmbedding && params.queryEmbedding && image.embedding
+        ? cosineSimilarity(params.queryEmbedding, image.embedding)
+        : 0;
+    const keywordScores = textScores(image, terms);
+    const textScore = keywordScores.combined;
+    const relevance = textScore > 0 ? textScore + semanticScore * 0.25 : semanticScore * 0.75;
+    return {
+      ...image,
+      relevance: query ? relevance : 0,
+      primaryTextScore: keywordScores.primary,
+      semanticScore,
+      textScore,
+    };
+  });
+
+  const semanticCutoff = getSemanticCutoff(scored, Boolean(query && hasQueryEmbedding));
+  const hasPrimaryTextMatches = scored.some((image) => image.primaryTextScore > 0);
+  const shouldUseExactSingleTerm = terms.length === 1 && hasPrimaryTextMatches;
+  const ranked = scored.filter((image) => {
+    if (!query) {
+      return true;
+    }
+
+    if (shouldUseExactSingleTerm) {
+      return image.primaryTextScore > 0;
+    }
+
+    if (image.textScore > 0) {
+      return true;
+    }
+
+    return image.semanticScore >= semanticCutoff;
+  });
 
   const sort = params.sort ?? (query ? "relevance" : "newest");
-  return ranked.sort((a, b) => {
-    if (sort === "filename") {
-      return a.original_filename.localeCompare(b.original_filename);
-    }
-    if (sort === "relevance") {
-      return b.relevance - a.relevance || b.created_at.localeCompare(a.created_at);
-    }
-    return b.created_at.localeCompare(a.created_at);
-  });
+  return ranked
+    .sort((a, b) => {
+      if (sort === "filename") {
+        return a.original_filename.localeCompare(b.original_filename);
+      }
+      if (sort === "relevance") {
+        return b.relevance - a.relevance || b.created_at.localeCompare(a.created_at);
+      }
+      return b.created_at.localeCompare(a.created_at);
+    })
+    .map(
+      ({
+        primaryTextScore: _primaryTextScore,
+        semanticScore: _semanticScore,
+        textScore: _textScore,
+        ...image
+      }) => image,
+    );
 }

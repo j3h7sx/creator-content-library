@@ -77,6 +77,131 @@ describe("search", () => {
     expect(results[0]?.id).toBe("older-match");
   });
 
+  test("keyword search uses whole tokens so tea does not match steamed", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "tea",
+          caption: "Cup of green tea on a bedside table",
+          tags: ["tea", "drink"],
+        }),
+        image({
+          id: "steamed",
+          caption: "Plate with scrambled eggs and steamed broccoli",
+          tags: ["breakfast", "steamed broccoli"],
+        }),
+      ],
+      { query: "tea", sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["tea"]);
+  });
+
+  test("semantic search filters to the closest cohort instead of returning every positive match", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "closest",
+          caption: "Quiet ocean shoreline at sunset",
+          embedding: [1, 0],
+        }),
+        image({
+          id: "nearby",
+          caption: "Beach boardwalk and water",
+          embedding: [0.94, 0.06],
+        }),
+        image({
+          id: "unrelated",
+          caption: "Desk setup with notebooks",
+          embedding: [0.2, 0.98],
+        }),
+      ],
+      { query: "calm sea mood", queryEmbedding: [1, 0], sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["closest"]);
+  });
+
+  test("keyword matches remain visible even when semantic score is below the cutoff", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "semantic-match",
+          caption: "Quiet ocean shoreline at sunset",
+          embedding: [1, 0],
+        }),
+        image({
+          id: "keyword-match",
+          caption: "Ocean note on a desk",
+          embedding: [0, 1],
+        }),
+      ],
+      { query: "ocean", queryEmbedding: [1, 0], sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toContain("keyword-match");
+  });
+
+  test("single-word searches prefer exact keyword results over semantic-only matches", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "tea",
+          caption: "Cup of green tea on a bedside table",
+          tags: ["tea", "drink"],
+          embedding: [0.8, 0.2],
+        }),
+        image({
+          id: "semantic-only-breakfast",
+          caption: "Plate with scrambled eggs and steamed broccoli",
+          tags: ["breakfast", "steamed broccoli"],
+          embedding: [1, 0],
+        }),
+      ],
+      { query: "tea", queryEmbedding: [1, 0], sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["tea"]);
+  });
+
+  test("single-word searches do not surface noisy raw filenames when primary fields match", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "ocean-photo",
+          caption: "Woman standing beside the ocean",
+          tags: ["ocean", "beach"],
+          original_filename: "downloaded-image.jpg",
+        }),
+        image({
+          id: "noisy-filename",
+          caption: "Person crouching to open small fridge in cozy kitchen",
+          tags: ["kitchen", "fridge"],
+          original_filename: "pinterest #ocean #vacation #inspo.jpg",
+        }),
+      ],
+      { query: "ocean", sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["ocean-photo"]);
+  });
+
+  test("raw filename search still works when no primary field matches", () => {
+    const results = searchImages(
+      [
+        image({
+          id: "filename-match",
+          caption: "Person crouching to open small fridge in cozy kitchen",
+          tags: ["kitchen", "fridge"],
+          original_filename: "pinterest #mallorca #vacation.jpg",
+        }),
+      ],
+      { query: "mallorca", sort: "relevance" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["filename-match"]);
+  });
+
   test("facets hide empty filters by only counting present records", () => {
     const facets = buildFacets([
       image({ category: "food_drink", tags: ["salad", "egg"] }),
