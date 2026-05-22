@@ -142,7 +142,22 @@ export async function walkImageFiles(
 
   for (const scanRoot of scanRoots) {
     const absoluteRoot = resolveFromRoot(scanRoot);
-    if (await fileExists(absoluteRoot)) {
+    const rootStats = await stat(absoluteRoot).catch(() => null);
+    if (!rootStats) {
+      continue;
+    }
+
+    if (rootStats.isFile()) {
+      if (isImagePath(absoluteRoot, config)) {
+        candidates.push({
+          absolutePath: absoluteRoot,
+          relativePath: path.relative(root, absoluteRoot).split(path.sep).join("/"),
+        });
+      }
+      continue;
+    }
+
+    if (rootStats.isDirectory()) {
       await walk(absoluteRoot);
     }
   }

@@ -1,8 +1,10 @@
 #!/usr/bin/env tsx
 import { Command } from "commander";
 import { catalogImages } from "@/lib/catalog/catalog";
+import { loadProjectEnv } from "@/lib/config/env";
 
 process.env.CONTENT_LIBRARY_LOAD_TS_CONFIG = "1";
+loadProjectEnv();
 
 const program = new Command();
 

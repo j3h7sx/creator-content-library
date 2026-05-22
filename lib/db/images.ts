@@ -51,6 +51,16 @@ export type ImageRecord = Omit<ImageRow, "tags_json" | "people_json" | "objects_
   embedding: number[] | null;
 };
 
+export type ImageMetadataUpdate = {
+  category: string;
+  tags: string[];
+  searchableText: string;
+  embedding: number[] | null;
+  embeddingModel: string | null;
+  inputTokens: number | null;
+  totalTokens: number | null;
+};
+
 function parseJsonArray(value: string | null): string[] {
   if (!value) {
     return [];
@@ -158,6 +168,52 @@ export function getImageById(db: Db, id: string): ImageRecord | null {
   return row ? rowToRecord(row) : null;
 }
 
+export function updateImageMetadata(
+  db: Db,
+  id: string,
+  update: ImageMetadataUpdate,
+): ImageRecord | null {
+  const current = getImageById(db, id);
+  if (!current) {
+    return null;
+  }
+
+  db.prepare(`
+    UPDATE images
+    SET
+      category = @category,
+      tags_json = @tags_json,
+      searchable_text = @searchable_text,
+      embedding_json = @embedding_json,
+      embedding_model = COALESCE(@embedding_model, embedding_model),
+      input_tokens = COALESCE(input_tokens, 0) + COALESCE(@input_tokens, 0),
+      total_tokens = COALESCE(total_tokens, 0) + COALESCE(@total_tokens, 0),
+      updated_at = @updated_at
+    WHERE id = @id
+  `).run({
+    id,
+    category: update.category,
+    tags_json: JSON.stringify(update.tags),
+    searchable_text: update.searchableText,
+    embedding_json: update.embedding
+      ? JSON.stringify(update.embedding)
+      : current.embedding
+        ? JSON.stringify(current.embedding)
+        : null,
+    embedding_model: update.embeddingModel,
+    input_tokens: update.inputTokens,
+    total_tokens: update.totalTokens,
+    updated_at: new Date().toISOString(),
+  });
+
+  return getImageById(db, id);
+}
+
+export function deleteImageById(db: Db, id: string): boolean {
+  const result = db.prepare("DELETE FROM images WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
 export function getAllImages(db: Db): ImageRecord[] {
   const rows = db
     .prepare("SELECT * FROM images WHERE is_duplicate = 0 ORDER BY created_at DESC")
@@ -171,6 +227,7 @@ export type ImageStats = {
   withEmbeddings: number;
   duplicates: number;
   latestProcessedAt: string | null;
+  latestUpdatedAt: string | null;
 };
 
 export function getImageStats(db: Db): ImageStats {
@@ -181,7 +238,8 @@ export function getImageStats(db: Db): ImageStats {
         COALESCE(SUM(CASE WHEN processed_at IS NOT NULL AND is_duplicate = 0 THEN 1 ELSE 0 END), 0) as cataloged,
         COALESCE(SUM(CASE WHEN embedding_json IS NOT NULL AND is_duplicate = 0 THEN 1 ELSE 0 END), 0) as withEmbeddings,
         COALESCE(SUM(CASE WHEN is_duplicate = 1 THEN 1 ELSE 0 END), 0) as duplicates,
-        MAX(processed_at) as latestProcessedAt
+        MAX(processed_at) as latestProcessedAt,
+        MAX(updated_at) as latestUpdatedAt
       FROM images
     `)
     .get() as ImageStats;

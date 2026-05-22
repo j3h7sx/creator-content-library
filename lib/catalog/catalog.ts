@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { getDb } from "@/lib/db/schema";
 import { findImageBySha, upsertImage } from "@/lib/db/images";
 import { createAiProvider } from "@/lib/ai/provider";
+import { createManualProvider } from "@/lib/ai/manual";
 import { loadConfig, resolveFromRoot, toRootRelative } from "@/lib/config/load";
 import {
   ensureDir,
@@ -31,11 +32,25 @@ export type CatalogSummary = {
   skippedExisting: number;
   duplicates: number;
   previewErrors: number;
+  aiErrors: number;
   aiProvider: "openai" | "manual";
 };
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function isUnsupportedImageInputError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const apiError = error as Error & { status?: number; code?: string };
+  return (
+    apiError.status === 400 &&
+    apiError.code === "invalid_value" &&
+    /valid image|supported image formats|image data/i.test(error.message)
+  );
 }
 
 async function moveDuplicate(input: {
@@ -65,6 +80,7 @@ export async function catalogImages(options: CatalogOptions = {}): Promise<Catal
       : [config.inboxDir];
   const db = await getDb();
   const provider = createAiProvider(config, options.manual);
+  const manualProvider = createManualProvider();
   const candidates = await walkImageFiles(scanRoots, config);
   const limitedCandidates = options.limit ? candidates.slice(0, options.limit) : candidates;
 
@@ -81,6 +97,7 @@ export async function catalogImages(options: CatalogOptions = {}): Promise<Catal
     skippedExisting: 0,
     duplicates: 0,
     previewErrors: 0,
+    aiErrors: 0,
     aiProvider: provider.name,
   };
 
@@ -120,11 +137,20 @@ export async function catalogImages(options: CatalogOptions = {}): Promise<Catal
     }
 
     const catalogInputPath = preview.previewPath ?? candidate.absolutePath;
-    const catalog = await provider.catalogImage({
+    const catalogInput = {
       imagePath: catalogInputPath,
       originalPath: candidate.relativePath,
       originalFileName: basename(candidate.absolutePath),
       taxonomy: config.taxonomy,
+    };
+    const catalog = await provider.catalogImage(catalogInput).catch(async (error: unknown) => {
+      if (!isUnsupportedImageInputError(error)) {
+        throw error;
+      }
+
+      summary.aiErrors += 1;
+      options.onProgress?.(`ai skipped unsupported image ${candidate.relativePath}`);
+      return manualProvider.catalogImage(catalogInput);
     });
 
     const category = normalizeCategorySlug(

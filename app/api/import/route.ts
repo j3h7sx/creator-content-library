@@ -3,8 +3,20 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { loadConfig, resolveFromRoot } from "@/lib/config/load";
 import { ensureDir, isImagePath, safeFileName, uniqueTargetPath } from "@/lib/images/files";
+import { getImportWorkerConcurrency, listImportJobs, startImportJob } from "@/lib/import/jobs";
 
 export const runtime = "nodejs";
+
+export async function GET() {
+  const jobs = await listImportJobs();
+
+  return NextResponse.json({
+    jobs,
+    worker: {
+      concurrency: getImportWorkerConcurrency(),
+    },
+  });
+}
 
 export async function POST(request: Request) {
   const config = await loadConfig();
@@ -29,12 +41,18 @@ export async function POST(request: Request) {
     imported.push(path.relative(process.cwd(), target).split(path.sep).join("/"));
   }
 
-  return NextResponse.json({
-    imported,
-    rejected,
-    message:
-      imported.length > 0
-        ? `Imported ${imported.length} file(s). Run bun run catalog to process them.`
-        : "No supported image files were imported.",
-  });
+  const job = await startImportJob({ imported, rejected });
+
+  return NextResponse.json(
+    {
+      imported,
+      rejected,
+      job,
+      message:
+        imported.length > 0
+          ? `Queued ${imported.length} file(s) for cataloging.`
+          : "No supported image files were imported.",
+    },
+    { status: imported.length > 0 ? 202 : 200 },
+  );
 }

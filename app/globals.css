@@ -126,6 +126,10 @@
     @apply font-sans;
   }
 
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     @apply antialiased bg-background text-foreground;
   }
@@ -139,5 +143,20 @@
 @layer utilities {
   .asset-grid {
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  .import-progress-indeterminate {
+    width: 42%;
+    animation: import-progress-sweep 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes import-progress-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(260%);
   }
 }

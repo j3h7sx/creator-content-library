@@ -6,6 +6,7 @@ export type SearchParams = {
   query?: string;
   category?: string;
   tag?: string;
+  tags?: string[];
   sort?: SortMode;
   queryEmbedding?: number[] | null;
 };
@@ -29,6 +30,12 @@ export type SearchFacets = {
   categories: Array<{ slug: string; count: number }>;
   tags: Array<{ slug: string; count: number }>;
 };
+
+type SearchFilters = Pick<SearchParams, "category" | "query" | "tag" | "tags">;
+
+function getTagFilters(params: SearchFilters): string[] {
+  return [...new Set([...(params.tags ?? []), params.tag].filter((item): item is string => Boolean(item)))];
+}
 
 const STOP_WORDS = new Set([
   "a",
@@ -166,9 +173,31 @@ export function buildFacets(images: ImageRecord[]): SearchFacets {
     tags: [...tags.entries()]
       .map(([slug, count]) => ({ slug, count }))
       .filter((item) => item.count > 0)
-      .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug))
-      .slice(0, 80),
+      .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug)),
   };
+}
+
+function filterImages(images: ImageRecord[], params: SearchFilters): ImageRecord[] {
+  const tagFilters = getTagFilters(params);
+  return images.filter((image) => {
+    if (params.category && image.category !== params.category) {
+      return false;
+    }
+    if (tagFilters.length > 0 && !tagFilters.every((tag) => image.tags.includes(tag))) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function canUseKeywordOnlySearch(images: ImageRecord[], params: SearchFilters): boolean {
+  const query = params.query?.trim() ?? "";
+  const terms = getQueryTerms(query);
+  if (terms.length !== 1) {
+    return false;
+  }
+
+  return filterImages(images, params).some((image) => textScores(image, terms).primary > 0);
 }
 
 function getSemanticCutoff(images: ScoredImage[], hasQueryEmbedding: boolean): number {
@@ -198,15 +227,7 @@ export function searchImages(images: ImageRecord[], params: SearchParams): Ranke
   const query = params.query?.trim() ?? "";
   const terms = getQueryTerms(query);
   const hasQueryEmbedding = Boolean(params.queryEmbedding?.length);
-  const filtered = images.filter((image) => {
-    if (params.category && image.category !== params.category) {
-      return false;
-    }
-    if (params.tag && !image.tags.includes(params.tag)) {
-      return false;
-    }
-    return true;
-  });
+  const filtered = filterImages(images, params);
 
   const scored: ScoredImage[] = filtered.map((image) => {
     const semanticScore =

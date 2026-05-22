@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { loadConfig, resolveFromRoot } from "@/lib/config/load";
 import { getImageStats } from "@/lib/db/images";
 import { getDb } from "@/lib/db/schema";
@@ -40,10 +41,13 @@ export default async function SettingsPage() {
               Local configuration and catalog status for this workspace.
             </p>
           </div>
-          <Badge variant={apiKeyConfigured ? "default" : "secondary"} className="w-fit gap-2">
-            <KeyRound />
-            {apiKeyConfigured ? "OpenAI API key found" : "Manual mode"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={apiKeyConfigured ? "default" : "secondary"} className="w-fit gap-2">
+              <KeyRound />
+              {apiKeyConfigured ? "OpenAI API key found" : "Manual mode"}
+            </Badge>
+            <ThemeToggle />
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

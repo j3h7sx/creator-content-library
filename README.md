@@ -57,12 +57,14 @@ OpenAI is optional. Without a key, the tool still imports images, generates prev
 To enable AI cataloging and semantic search:
 
 ```bash
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=your_openai_api_key
 OPENAI_CATALOG_MODEL=gpt-4.1-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
 Models are configurable because model availability and pricing can change. The app stores model names and token usage when the API response includes usage data. Cost estimates are left empty in v1 unless you add pricing logic in your own fork.
+
+Semantic search sends the text query to the embeddings API the first time a normalized query is searched. Query embeddings are cached locally in SQLite by query and embedding model, so repeating the same search does not call OpenAI again.
 
 ## Commands
 
@@ -74,6 +76,7 @@ bun run search "salad with avocado and egg"
 bun run rebuild
 bun run dedupe
 bun run dedupe -- --move
+bun run pinterest:setup
 bun run pinterest:board "https://www.pinterest.com/user/board/" --out ./library/00_inbox
 bun run typecheck
 bun run lint
@@ -90,22 +93,47 @@ bun run catalog -- --manual
 bun run rebuild -- --force
 ```
 
-## Manual Import Workflow
+## Web Import Workflow
 
 1. Open the web app.
 2. Click **Import**.
-3. Select images from your computer.
-4. The app writes them into `library/00_inbox`.
-5. Run `bun run catalog` or `bun run catalog -- --move`.
-6. Refresh the browser.
+3. Select images from your computer, drag them onto the window, or paste a Pinterest board URL.
+4. The app queues durable background import jobs.
+5. Progress appears in the import dialog with the current job step and processed file count.
+6. Completed jobs refresh the library automatically.
 
-The web app does not automatically call OpenAI during upload. That keeps API usage explicit and easier to explain in workshops.
+If `OPENAI_API_KEY` is configured, background cataloging uses the configured OpenAI models automatically. Without a key, jobs still run with manual filename-based metadata.
+
+Import jobs are stored in SQLite, so queued or retrying jobs resume when the app/server starts again. The worker processes up to two jobs at once by default. To tune that locally:
+
+```bash
+CONTENT_LIBRARY_IMPORT_CONCURRENCY=3 bun run dev
+```
+
+The value is capped at 6 to avoid overwhelming local image processing or API rate limits.
 
 ## Pinterest Workflow
 
 This repo does **not** include an official Pinterest API integration and does not bypass platform restrictions.
 
-If you already have a downloader you are allowed to use, configure it:
+It does include a bundled copy of the same third-party downloader used by the local `pinboard` fish function. Install its Python dependencies once:
+
+```bash
+bun run pinterest:setup
+```
+
+Then download a board into the import inbox:
+
+```bash
+bun run pinterest:board "https://www.pinterest.com/user/board/" --out ./library/00_inbox
+bun run catalog -- --move
+```
+
+The bundled downloader writes nested folders under `library/00_inbox`, and `catalog` scans them recursively.
+
+You can also use the web app import dialog. Paste a board URL into the Pinterest field and the app queues it immediately, clears the input, and shows progress below. Repeat for more boards while earlier jobs keep running.
+
+If you want to override the bundled downloader with another downloader you are allowed to use, configure it:
 
 ```bash
 PINTEREST_DOWNLOADER_COMMAND=python3
@@ -218,7 +246,7 @@ HEIC support depends on the installed `sharp`/libvips build and platform codecs.
 
 - Images and metadata stay on your machine by default.
 - If `OPENAI_API_KEY` is configured, images sent for cataloging are sent to OpenAI for processing.
-- Query embeddings are generated through OpenAI only when semantic search is available and you search with a non-empty query.
+- Query embeddings are generated through OpenAI only when semantic search is available, you search with a non-empty query, and that normalized query is not already cached locally.
 - Do not catalog sensitive images unless you understand where your configured AI provider sends data.
 
 ## Troubleshooting

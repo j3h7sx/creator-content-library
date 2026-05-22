@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ImageRecord } from "@/lib/db/images";
-import { buildFacets, searchImages } from "@/lib/search/search";
+import { buildFacets, canUseKeywordOnlySearch, searchImages } from "@/lib/search/search";
 
 function image(overrides: Partial<ImageRecord>): ImageRecord {
   return {
@@ -164,6 +164,25 @@ describe("search", () => {
     expect(results.map((result) => result.id)).toEqual(["tea"]);
   });
 
+  test("single-word primary matches can skip semantic embedding", () => {
+    const images = [
+      image({
+        id: "tea",
+        caption: "Cup of green tea on a bedside table",
+        tags: ["tea", "drink"],
+      }),
+      image({
+        id: "breakfast",
+        caption: "Plate with scrambled eggs and steamed broccoli",
+        tags: ["breakfast", "steamed broccoli"],
+      }),
+    ];
+
+    expect(canUseKeywordOnlySearch(images, { query: "tea" })).toBe(true);
+    expect(canUseKeywordOnlySearch(images, { query: "unknown" })).toBe(false);
+    expect(canUseKeywordOnlySearch(images, { query: "green tea" })).toBe(false);
+  });
+
   test("single-word searches do not surface noisy raw filenames when primary fields match", () => {
     const results = searchImages(
       [
@@ -210,5 +229,29 @@ describe("search", () => {
 
     expect(facets.categories).toEqual([{ slug: "food_drink", count: 2 }]);
     expect(facets.tags[0]).toEqual({ slug: "salad", count: 2 });
+  });
+
+  test("facets include rare tags past the old sidebar limit", () => {
+    const facets = buildFacets(
+      Array.from({ length: 90 }, (_, index) =>
+        image({ id: `tag-${index}`, tags: [`tag_${index}`] }),
+      ),
+    );
+
+    expect(facets.tags).toHaveLength(90);
+    expect(facets.tags.some((facet) => facet.slug === "tag_89")).toBe(true);
+  });
+
+  test("multiple selected tags narrow results to images containing all tags", () => {
+    const results = searchImages(
+      [
+        image({ id: "app-phone", tags: ["endolog_app", "phone_photo"] }),
+        image({ id: "app-only", tags: ["endolog_app"] }),
+        image({ id: "phone-only", tags: ["phone_photo"] }),
+      ],
+      { tags: ["endolog_app", "phone_photo"], sort: "newest" },
+    );
+
+    expect(results.map((result) => result.id)).toEqual(["app-phone"]);
   });
 });

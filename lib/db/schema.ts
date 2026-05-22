@@ -66,5 +66,53 @@ export function initializeSchema(db: Db): void {
     CREATE INDEX IF NOT EXISTS idx_images_created_at ON images(created_at);
     CREATE INDEX IF NOT EXISTS idx_images_filename ON images(original_filename);
     CREATE INDEX IF NOT EXISTS idx_images_duplicate ON images(is_duplicate);
+
+    CREATE TABLE IF NOT EXISTS query_embedding_cache (
+      id TEXT PRIMARY KEY,
+      normalized_query TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
+      input_tokens INTEGER,
+      total_tokens INTEGER,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_query_embedding_cache_lookup
+      ON query_embedding_cache(normalized_query, embedding_model);
+    CREATE INDEX IF NOT EXISTS idx_query_embedding_cache_last_used_at
+      ON query_embedding_cache(last_used_at);
+
+    CREATE TABLE IF NOT EXISTS import_jobs (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      source_url TEXT,
+      working_dir TEXT,
+      imported_json TEXT NOT NULL DEFAULT '[]',
+      rejected_json TEXT NOT NULL DEFAULT '[]',
+      messages_json TEXT NOT NULL DEFAULT '[]',
+      summary_json TEXT,
+      error TEXT,
+      total INTEGER NOT NULL DEFAULT 0,
+      processed INTEGER NOT NULL DEFAULT 0,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT,
+      started_at TEXT,
+      finished_at TEXT,
+      dismissed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_import_jobs_status_next_attempt
+      ON import_jobs(status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_import_jobs_updated_at
+      ON import_jobs(updated_at);
   `);
+
+  const importJobColumns = db.prepare("PRAGMA table_info(import_jobs)").all() as Array<{ name: string }>;
+  if (!importJobColumns.some((column) => column.name === "dismissed_at")) {
+    db.exec("ALTER TABLE import_jobs ADD COLUMN dismissed_at TEXT");
+  }
 }

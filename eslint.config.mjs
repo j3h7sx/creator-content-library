@@ -7,6 +7,7 @@ export default [
   {
     ignores: [
       ".next/**",
+      ".venv-pinterest/**",
       "node_modules/**",
       "library/**",
       "data/**",
