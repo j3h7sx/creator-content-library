@@ -2,6 +2,7 @@ import path from "node:path";
 import { basename } from "node:path";
 import { getDb } from "@/lib/db/schema";
 import { findImageBySha, upsertImage } from "@/lib/db/images";
+import { isCatalogMetadataParseError } from "@/lib/ai/openai";
 import { createAiProvider } from "@/lib/ai/provider";
 import { createManualProvider } from "@/lib/ai/manual";
 import { loadConfig, resolveFromRoot, toRootRelative } from "@/lib/config/load";
@@ -144,12 +145,12 @@ export async function catalogImages(options: CatalogOptions = {}): Promise<Catal
       taxonomy: config.taxonomy,
     };
     const catalog = await provider.catalogImage(catalogInput).catch(async (error: unknown) => {
-      if (!isUnsupportedImageInputError(error)) {
+      if (!isUnsupportedImageInputError(error) && !isCatalogMetadataParseError(error)) {
         throw error;
       }
 
       summary.aiErrors += 1;
-      options.onProgress?.(`ai skipped unsupported image ${candidate.relativePath}`);
+      options.onProgress?.(`ai skipped ${candidate.relativePath}`);
       return manualProvider.catalogImage(catalogInput);
     });
 

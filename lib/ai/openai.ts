@@ -17,6 +17,17 @@ type ResponseUsage = {
   total_tokens?: number;
 };
 
+export class CatalogMetadataParseError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "CatalogMetadataParseError";
+  }
+}
+
+export function isCatalogMetadataParseError(error: unknown): error is CatalogMetadataParseError {
+  return error instanceof CatalogMetadataParseError;
+}
+
 function cleanStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -67,6 +78,21 @@ function normalizeMetadata(value: unknown): CatalogMetadata {
           ? source.searchableText.trim()
           : "",
   };
+}
+
+export function parseCatalogMetadataResponse(outputText: string | null | undefined): CatalogMetadata {
+  const trimmed = outputText?.trim();
+  if (!trimmed) {
+    throw new CatalogMetadataParseError("AI catalog response was empty.");
+  }
+
+  try {
+    return normalizeMetadata(JSON.parse(trimmed) as unknown);
+  } catch (error) {
+    throw new CatalogMetadataParseError("AI catalog response was not valid JSON.", {
+      cause: error,
+    });
+  }
 }
 
 function usageFromResponse(usage: ResponseUsage | undefined) {
@@ -153,9 +179,7 @@ export function createOpenAiProvider(config: ContentLibraryConfig): CatalogAiPro
         output_text?: string;
         usage?: ResponseUsage;
       };
-      const outputText = responseWithOutput.output_text ?? "{}";
-      const parsed = JSON.parse(outputText) as unknown;
-      const metadata = normalizeMetadata(parsed);
+      const metadata = parseCatalogMetadataResponse(responseWithOutput.output_text);
       const searchableText =
         metadata.searchableText ||
         [
